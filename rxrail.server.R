@@ -1,17 +1,15 @@
 library(shiny)
 library(leaflet)
-library(readr)
 library(tidygeocoder)
 library(geosphere)
 
-# Define UI
 ui <- fluidPage(
-  titlePanel("NC Railroad Crossings Map with Route Highlight"),
+  titlePanel("NC Railroad Crossings Route Map"),
   sidebarLayout(
     sidebarPanel(
-      textInput("fromAddress", "From Address"),
-      textInput("toAddress", "To Address"),
-      actionButton("routeBtn", "Find Route and Highlight")
+      textInput("fromAddress", "From Address", ""),
+      textInput("toAddress", "To Address", ""),
+      actionButton("routeBtn", "Find Route")
     ),
     mainPanel(
       leafletOutput("railroadMap", height = "600px")
@@ -19,75 +17,54 @@ ui <- fluidPage(
   )
 )
 
-# Define Server
 server <- function(input, output, session) {
-  # Read CSV Data
-  crossings_data <- reactive({
-    read_csv("NC_Railroad_crossing_data.csv", show_col_types = FALSE)
-  })
   
-  # Initialize Map with default zoom to Apex, NC
   output$railroadMap <- renderLeaflet({
-    df <- crossings_data()
-    leaflet(df) %>%
-      addTiles() %>%
-      setView(lng = -78.8503, lat = 35.7327, zoom = 12) %>%  # Apex, NC coordinates
-      addCircleMarkers(~Longitude, ~Latitude,
-                       popup = ~paste("CrossingID:", CrossingID, "<br>",
-                                      "State:", StateName),
-                       radius = 5, color = "red", fillOpacity = 0.8)
+    leaflet() %>%
+      addProviderTiles(providers$OpenStreetMap) %>%
+      setView(lng = -78.8503, lat = 35.7327, zoom = 13)  # Apex, NC
   })
   
-  # Highlight route and check proximity
   observeEvent(input$routeBtn, {
     req(input$fromAddress, input$toAddress)
     
-    from_coords <- geo(input$fromAddress, method = "osm")
-    to_coords <- geo(input$toAddress, method = "osm")
+    from_coords <- geo(input$fromAddress, method = "osm", verbose = FALSE)
+    to_coords <- geo(input$toAddress, method = "osm", verbose = FALSE)
     
     if (is.na(from_coords$lat) || is.na(to_coords$lat)) {
       showModal(modalDialog(
         title = "Geocoding Error",
-        "Unable to geocode one or both addresses. Please try again.",
+        "Unable to geocode one or both addresses. Please check your input.",
         easyClose = TRUE
       ))
       return()
     }
     
-    # Generate intermediate points (SpatialLines)
-    line_points <- gcIntermediate(c(from_coords$long, from_coords$lat),
-                                  c(to_coords$long, to_coords$lat),
-                                  n = 200, addStartEnd = TRUE, sp = TRUE)
+    # Generate intermediate points for the route
+    route_line <- gcIntermediate(
+      c(from_coords$long, from_coords$lat),
+      c(to_coords$long, to_coords$lat),
+      n = 200,
+      addStartEnd = TRUE,
+      sp = TRUE
+    )
     
-    # Extract coordinates from SpatialLines
-    route_coords <- line_points@lines[[1]]@Lines[[1]]@coords
+    # Extract coordinates for plotting
+    route_coords <- route_line@lines[[1]]@Lines[[1]]@coords
     
+    # Update map with route line
     leafletProxy("railroadMap") %>%
       clearGroup("route") %>%
-      addPolylines(lng = route_coords[,1], lat = route_coords[,2], 
-                   color = "blue", weight = 5, opacity = 0.8, group = "route")
-    
-    crossings <- crossings_data()
-    crossing_coords <- cbind(crossings$Longitude, crossings$Latitude)
-    
-    distances <- distm(route_coords, crossing_coords, fun = distHaversine)
-    
-    if (any(distances < 500)) {
-      showModal(modalDialog(
-        title = "Railroad Crossing Alert",
-        "Warning: There are railroad crossings close to your route!",
-        easyClose = TRUE
-      ))
-    } else {
-      showModal(modalDialog(
-        title = "Route Check",
-        "Your route does not pass close to any railroad crossings.",
-        easyClose = TRUE
-      ))
-    }
+      addPolylines(
+        lng = route_coords[,1], 
+        lat = route_coords[,2],
+        color = "blue", weight = 5, opacity = 0.8, group = "route"
+      ) %>%
+      fitBounds(
+        lng1 = min(route_coords[,1]), lat1 = min(route_coords[,2]),
+        lng2 = max(route_coords[,1]), lat2 = max(route_coords[,2])
+      )
   })
-  
 }
 
-# Run Shiny App
 shinyApp(ui, server)
