@@ -5,6 +5,7 @@ library(osrm)
 library(sf)
 library(readr)
 library(geosphere)
+library(osmdata)
 
 ui <- fluidPage(
   titlePanel("NC Railroad Crossings Route Map"),
@@ -13,6 +14,7 @@ ui <- fluidPage(
       textInput("fromAddress", "From Address", "8624 Castleberry Rd, Apex, NC 27523"),
       textInput("toAddress", "To Address", "4000 Louis Stephens Dr, Cary, NC 27519"),
       actionButton("routeBtn", "Find Route"),
+      checkboxInput("satelliteView", "Use Satellite View", value = FALSE),
       hr(),
       verbatimTextOutput("routeInfo"),
       verbatimTextOutput("routeSteps")
@@ -32,10 +34,18 @@ server <- function(input, output, session) {
     read_csv("NC_Railroad_crossing_data.csv", show_col_types = FALSE)
   })
   
+  baseMap <- reactive({
+    if (input$satelliteView) {
+      providers$Esri.WorldImagery
+    } else {
+      providers$OpenStreetMap
+    }
+  })
+  
   output$railroadMap <- renderLeaflet({
     df <- crossings_data()
     leaflet(df) %>%
-      addProviderTiles(providers$OpenStreetMap) %>%
+      addProviderTiles(baseMap()) %>%
       addTiles(urlTemplate = "http://{s}.tiles.openrailwaymap.org/standard/{z}/{x}/{y}.png",
                attribution = "© OpenStreetMap contributors, Style: CC-BY-SA 2.0 OpenRailwayMap",
                options = tileOptions(minZoom = 2, maxZoom = 19, tileSize = 256)) %>%
@@ -76,12 +86,17 @@ server <- function(input, output, session) {
     
     if (is.null(route)) return()
     
-    proxy <- leafletProxy("railroadMap")
+    midpoint <- c(mean(c(from$lat, to$lat)), mean(c(from$long, to$long)))
+    bbox <- st_bbox(route)
     
-    proxy %>%
+    proxy <- leafletProxy("railroadMap") %>%
       clearGroup("route") %>%
+      clearMarkers() %>%
+      addProviderTiles(baseMap()) %>%
       addPolylines(data = st_zm(route), color = "blue", weight = 5, opacity = 0.9, group = "route") %>%
-      setView(lng = from$long, lat = from$lat, zoom = 14)
+      addMarkers(lng = from$long, lat = from$lat, popup = "Start", icon = makeIcon("https://maps.google.com/mapfiles/ms/icons/green-dot.png")) %>%
+      addMarkers(lng = to$long, lat = to$lat, popup = "Destination", icon = makeIcon("https://maps.google.com/mapfiles/ms/icons/red-dot.png")) %>%
+      fitBounds(bbox[["xmin"]], bbox[["ymin"]], bbox[["xmax"]], bbox[["ymax"]])
     
     output$routeInfo <- renderText({
       paste("Estimated time:", round(route$duration, 1), "minutes\n",
@@ -102,7 +117,7 @@ server <- function(input, output, session) {
       }
     }
     
-    route_coords <- st_coordinates(route)[, 1:2]  # Only lon-lat
+    route_coords <- st_coordinates(route)[, 1:2]
     crossings <- crossings_data()
     crossing_coords <- cbind(crossings$Longitude, crossings$Latitude)
     distances <- distm(route_coords, crossing_coords, fun = distHaversine)
@@ -117,8 +132,35 @@ server <- function(input, output, session) {
                          group = "near_crossings")
       
       showModal(modalDialog(
-        title = "RXrail: Railroad Crossing Alert",
+        title = "Railroad Crossing Alert",
         paste("Warning: Your route is close to", length(near_crossings), "railroad crossing(s)."),
+        easyClose = TRUE
+      ))
+    }
+    
+    # Query OSM railway lines in bounding box
+    railway_query <- opq(bbox = bbox) %>%
+      add_osm_feature(key = "railway", value = c("rail", "tram"))
+    
+    rail_sf <- tryCatch({
+      osmdata_sf(railway_query)$osm_lines
+    }, error = function(e) NULL)
+    
+    if (!is.null(rail_sf) && nrow(rail_sf) > 0) {
+      crossing_segs <- st_intersects(route, rail_sf, sparse = FALSE)
+      parallel_segs <- st_is_within_distance(route, rail_sf, dist = 50, sparse = FALSE)
+      
+      status <- if (any(crossing_segs)) {
+        "Your route crosses a railway."
+      } else if (any(parallel_segs)) {
+        "Your route runs parallel to a railway."
+      } else {
+        "No rail interaction detected."
+      }
+      
+      showModal(modalDialog(
+        title = "Rail Interaction Info",
+        status,
         easyClose = TRUE
       ))
     }
