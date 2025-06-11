@@ -1,2 +1,2 @@
 # RXrail
-App to alert users when approaching a railroad crossing
+A map app to alert users when approaching a railroad crossing
