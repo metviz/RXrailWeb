@@ -1,3 +1,6 @@
+# Install necessary packages (run once if needed)
+# install.packages(c("shiny", "leaflet", "tidygeocoder", "osrm", "sf", "readr", "geosphere", "osmdata"))
+
 library(shiny)
 library(leaflet)
 library(tidygeocoder)
@@ -138,7 +141,27 @@ server <- function(input, output, session) {
       ))
     }
     
-    # Query OSM railway lines in bounding box
+    railway_points <- opq(bbox = bbox) %>%
+      add_osm_feature(key = "railway", value = c("level_crossing", "crossing", "tram_level_crossing")) %>%
+      osmdata_sf()
+    
+    nodes <- railway_points$osm_points
+    if (!is.null(nodes) && nrow(nodes) > 0) {
+      nodes$type <- dplyr::case_when(
+        nodes$railway == "level_crossing" ~ "❌ Road Crossing",
+        nodes$railway == "tram_level_crossing" ~ "❌ Tram Crossing",
+        nodes$railway == "crossing" ~ "❌  Pedestrian Crossing",
+        TRUE ~ "Other"
+      )
+      proxy %>%
+        addLabelOnlyMarkers(data = nodes,
+                            lng = ~st_coordinates(geometry)[,1],
+                            lat = ~st_coordinates(geometry)[,2],
+                            label = ~type,
+                            labelOptions = labelOptions(noHide = TRUE, direction = 'top', textOnly = TRUE))
+    }
+    
+    # Rail line interaction
     railway_query <- opq(bbox = bbox) %>%
       add_osm_feature(key = "railway", value = c("rail", "tram"))
     
