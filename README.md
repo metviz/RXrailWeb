@@ -145,7 +145,7 @@ Mount your CSV at `/srv/shiny-server/rxrail/NC_Railroad_crossing_data.csv`.
 - OpenRailwayMap. Follow provider license.
 
 ## License
-Add your license here.
+MIT
 
 ## Contributing
 - Open an issue with steps to reproduce.
