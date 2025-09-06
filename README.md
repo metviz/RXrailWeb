@@ -13,6 +13,8 @@ Shiny app to map NC railroad crossings (Can be extended to other states in US or
 - Alert if the route crosses a rail or runs parallel to it.
 
 ## Screenshots
+<img width="1207" height="633" alt="image" src="https://github.com/user-attachments/assets/bac87236-fa5c-4c29-9851-bc3b2ab694b0" />
+<img width="1920" height="1080" alt="image" src="https://github.com/user-attachments/assets/656cfc49-a3a3-4a00-a6c7-91a4cdc0cc85" />
 
 
 ## Requirements
